@@ -1,40 +1,103 @@
-import React, { useState } from 'react';
-import { X, PlusCircle, LayoutTemplate, Database as DbIcon, Type } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, PlusCircle, LayoutTemplate, Database as DbIcon, Type, Route, Calendar, BarChart3 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import type { WidgetConfig, MetricConfig } from '../types/supabase';
 
 interface Props {
     isOpen: boolean;
     onClose: () => void;
-    // Optional: Pass current max order to auto-append
     nextOrder: number;
 }
 
+const AVAILABLE_METRICS: { key: string; defaultLabel: string }[] = [
+    { key: 'revenue', defaultLabel: '营收(元)' },
+    { key: 'passenger_count', defaultLabel: '人数(人)' },
+    { key: 'energy_cost', defaultLabel: '能耗(元)' },
+    { key: 'mileage', defaultLabel: '里程(km)' },
+];
+
 export default function AddWidgetModal({ isOpen, onClose, nextOrder }: Props) {
     const [title, setTitle] = useState('');
-    const [chartType, setChartType] = useState('metric');
-    const [dataSource, setDataSource] = useState('revenue');
+    const [chartType, setChartType] = useState('comparison');
+    const [dataSource, setDataSource] = useState('route_daily_metrics');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    // 线路选择
+    const [availableRoutes, setAvailableRoutes] = useState<string[]>([]);
+    const [selectedRoutes, setSelectedRoutes] = useState<string[]>([]);
+    const [compareRoutes, setCompareRoutes] = useState<string[]>([]);
+
+    // 时间维度
+    const [dateRangeType, setDateRangeType] = useState('last_7_days');
+
+    // 指标选择
+    const [selectedMetrics, setSelectedMetrics] = useState<MetricConfig[]>([
+        { key: 'revenue', label: '营收(元)' }
+    ]);
+
+    // 是否为高级图表（需要线路/指标配置）
+    const isAdvancedType = chartType === 'comparison' || chartType === 'metric_cards';
+
+    // 加载可用线路
+    useEffect(() => {
+        if (!isOpen) return;
+        const fetchRoutes = async () => {
+            const { data } = await supabase
+                .from('route_daily_metrics')
+                .select('route_name')
+            if (data) {
+                const uniqueRoutes = [...new Set(data.map((r: any) => r.route_name))];
+                setAvailableRoutes(uniqueRoutes);
+            }
+        };
+        fetchRoutes();
+    }, [isOpen]);
+
     if (!isOpen) return null;
+
+    const toggleRoute = (route: string, list: string[], setList: (v: string[]) => void) => {
+        setList(list.includes(route) ? list.filter(r => r !== route) : [...list, route]);
+    };
+
+    const toggleMetric = (key: string) => {
+        if (selectedMetrics.find(m => m.key === key)) {
+            setSelectedMetrics(selectedMetrics.filter(m => m.key !== key));
+        } else {
+            const defaultLabel = AVAILABLE_METRICS.find(m => m.key === key)?.defaultLabel || key;
+            setSelectedMetrics([...selectedMetrics, { key, label: defaultLabel }]);
+        }
+    };
+
+    const updateMetricLabel = (key: string, label: string) => {
+        setSelectedMetrics(selectedMetrics.map(m => m.key === key ? { ...m, label } : m));
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!title.trim()) {
-            setError('请输入板块标题');
-            return;
-        }
+        if (!title.trim()) { setError('请输入板块标题'); return; }
+        if (isAdvancedType && selectedRoutes.length === 0) { setError('至少选择一条线路'); return; }
+        if (isAdvancedType && selectedMetrics.length === 0) { setError('至少选择一个指标'); return; }
 
         setIsSubmitting(true);
         setError(null);
+
+        const config: WidgetConfig = isAdvancedType ? {
+            routes: selectedRoutes,
+            compare_routes: compareRoutes.length > 0 ? compareRoutes : undefined,
+            date_range: { type: dateRangeType as any },
+            metrics: selectedMetrics,
+            view_mode: 'daily',
+        } : {};
 
         const { error: insertError } = await supabase
             .from('dashboard_configs')
             .insert({
                 title: title.trim(),
                 chart_type: chartType,
-                data_source: dataSource,
-                order: nextOrder
+                data_source: isAdvancedType ? 'route_daily_metrics' : dataSource,
+                order: nextOrder,
+                config: config as any,
             });
 
         setIsSubmitting(false);
@@ -42,23 +105,22 @@ export default function AddWidgetModal({ isOpen, onClose, nextOrder }: Props) {
         if (insertError) {
             setError(`保存失败: ${insertError.message}`);
         } else {
-            // Reset and close
-            setTitle('');
-            setChartType('metric');
-            setDataSource('revenue');
+            setTitle(''); setChartType('comparison'); setSelectedRoutes([]); setCompareRoutes([]);
+            setSelectedMetrics([{ key: 'revenue', label: '营收(元)' }]);
             onClose();
         }
     };
 
-    return (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-            <div className="bg-[#0f1d35] border border-cyan-500/30 rounded-2xl w-full max-w-md p-6 shadow-2xl shadow-cyan-900/20 relative animate-in zoom-in-95 duration-200">
+    const inputCls = "w-full bg-slate-900/50 border border-slate-700/50 focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 rounded-xl px-4 py-2.5 text-sm text-slate-200 placeholder-slate-500 outline-none transition-all";
+    const selectCls = `${inputCls} appearance-none cursor-pointer`;
+    const labelCls = "text-xs font-semibold text-slate-300 flex items-center gap-1.5 ml-1";
+    const chipBaseCls = "px-3 py-1.5 rounded-lg text-xs font-medium border transition-all cursor-pointer select-none";
 
-                {/* Close Button */}
-                <button
-                    onClick={onClose}
-                    className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
-                >
+    return (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-[#0f1d35] border border-cyan-500/30 rounded-2xl w-full max-w-lg p-6 shadow-2xl shadow-cyan-900/20 relative max-h-[90vh] overflow-y-auto custom-scrollbar">
+
+                <button onClick={onClose} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors">
                     <X className="w-5 h-5" />
                 </button>
 
@@ -73,95 +135,148 @@ export default function AddWidgetModal({ isOpen, onClose, nextOrder }: Props) {
                 </div>
 
                 {error && (
-                    <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">
-                        {error}
-                    </div>
+                    <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">{error}</div>
                 )}
 
                 <form onSubmit={handleSubmit} className="space-y-4">
 
-                    {/* Title */}
+                    {/* 板块标题 */}
                     <div className="space-y-1.5">
-                        <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5 ml-1">
-                            <Type className="w-3.5 h-3.5 text-slate-400" /> 版块标题
-                        </label>
-                        <input
-                            type="text"
-                            value={title}
-                            onChange={(e) => setTitle(e.target.value)}
-                            placeholder="例如：本月销售额分析"
-                            className="w-full bg-slate-900/50 border border-slate-700/50 focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 rounded-xl px-4 py-2.5 text-sm text-slate-200 placeholder-slate-500 outline-none transition-all"
-                        />
+                        <label className={labelCls}><Type className="w-3.5 h-3.5 text-slate-400" /> 板块标题</label>
+                        <input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="例如：湘潭-花石 每日营收趋势" className={inputCls} />
                     </div>
 
-                    {/* Chart Type */}
+                    {/* 图表类型 */}
                     <div className="space-y-1.5">
-                        <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5 ml-1">
-                            <LayoutTemplate className="w-3.5 h-3.5 text-slate-400" /> 图表展现形式
-                        </label>
+                        <label className={labelCls}><LayoutTemplate className="w-3.5 h-3.5 text-slate-400" /> 图表类型</label>
                         <div className="relative">
-                            <select
-                                value={chartType}
-                                onChange={(e) => setChartType(e.target.value)}
-                                className="w-full appearance-none bg-slate-900/50 border border-slate-700/50 focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 rounded-xl px-4 py-2.5 text-sm text-slate-200 outline-none transition-all cursor-pointer"
-                            >
-                                <option value="line">折线图 (Line Chart)</option>
-                                <option value="bar">柱状图 (Bar Chart)</option>
-                                <option value="gauge">仪表盘 (Gauge)</option>
-                                <option value="progress">进度环视 (Progress Ring)</option>
-                                <option value="project_timeline">多项指标对比 (Project Timeline)</option>
-                                <option value="metric">纯数据卡片 (Metric)</option>
+                            <select value={chartType} onChange={e => setChartType(e.target.value)} className={selectCls}>
+                                <optgroup label="📊 BI 分析图表 (推荐)">
+                                    <option value="comparison">趋势对比图 (折线/柱状)</option>
+                                    <option value="metric_cards">数据指标卡片群</option>
+                                </optgroup>
+                                <optgroup label="📈 传统全局图表">
+                                    <option value="line">折线图 (全局)</option>
+                                    <option value="bar">柱状图 (全局)</option>
+                                    <option value="gauge">仪表盘</option>
+                                    <option value="progress">进度环</option>
+                                    <option value="project_timeline">专项指标</option>
+                                </optgroup>
                             </select>
                             <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none">
-                                <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                                <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
                             </div>
                         </div>
                     </div>
 
-                    {/* Data Source */}
-                    <div className="space-y-1.5">
-                        <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5 ml-1">
-                            <DbIcon className="w-3.5 h-3.5 text-slate-400" /> 绑定数据源
-                        </label>
-                        <div className="relative">
-                            <select
-                                value={dataSource}
-                                onChange={(e) => setDataSource(e.target.value)}
-                                className="w-full appearance-none bg-slate-900/50 border border-slate-700/50 focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 rounded-xl px-4 py-2.5 text-sm text-slate-200 outline-none transition-all cursor-pointer"
-                            >
-                                <option value="revenue">全节点营收与客流明细</option>
-                                <option value="passenger_flow">客运专项监控</option>
-                                <option value="project">校园与包车专项指标</option>
-                                <option value="social">自媒体影响力矩阵</option>
-                            </select>
-                            <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none">
-                                <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                    {/* ── 高级配置区域（仅对 comparison / metric_cards 显示） ── */}
+                    {isAdvancedType && (
+                        <>
+                            {/* 线路选择 */}
+                            <div className="space-y-1.5">
+                                <label className={labelCls}><Route className="w-3.5 h-3.5 text-slate-400" /> 选择线路</label>
+                                <div className="flex flex-wrap gap-2">
+                                    {availableRoutes.length === 0 ? (
+                                        <span className="text-xs text-slate-500">暂无可用线路，请先在数据库中录入数据</span>
+                                    ) : availableRoutes.map(route => (
+                                        <button key={route} type="button"
+                                            onClick={() => toggleRoute(route, selectedRoutes, setSelectedRoutes)}
+                                            className={`${chipBaseCls} ${selectedRoutes.includes(route) ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50' : 'bg-slate-900/50 text-slate-400 border-slate-700/50 hover:border-slate-600'}`}
+                                        >
+                                            {route}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* 对比线路（可选） */}
+                            <div className="space-y-1.5">
+                                <label className={labelCls}><Route className="w-3.5 h-3.5 text-violet-400" /> 对比线路 (可选)</label>
+                                <div className="flex flex-wrap gap-2">
+                                    {availableRoutes.filter(r => !selectedRoutes.includes(r)).length === 0 ? (
+                                        <span className="text-xs text-slate-500">没有其他可对比线路</span>
+                                    ) : availableRoutes.filter(r => !selectedRoutes.includes(r)).map(route => (
+                                        <button key={route} type="button"
+                                            onClick={() => toggleRoute(route, compareRoutes, setCompareRoutes)}
+                                            className={`${chipBaseCls} ${compareRoutes.includes(route) ? 'bg-violet-500/20 text-violet-300 border-violet-500/50' : 'bg-slate-900/50 text-slate-400 border-slate-700/50 hover:border-slate-600'}`}
+                                        >
+                                            {route}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* 时间维度 */}
+                            <div className="space-y-1.5">
+                                <label className={labelCls}><Calendar className="w-3.5 h-3.5 text-slate-400" /> 时间范围</label>
+                                <div className="relative">
+                                    <select value={dateRangeType} onChange={e => setDateRangeType(e.target.value)} className={selectCls}>
+                                        <option value="last_7_days">最近 7 天</option>
+                                        <option value="last_30_days">最近 30 天</option>
+                                        <option value="this_month">本月至今</option>
+                                        <option value="last_month">上月整月</option>
+                                    </select>
+                                    <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none">
+                                        <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* 指标选择与自定义标题 */}
+                            <div className="space-y-1.5">
+                                <label className={labelCls}><BarChart3 className="w-3.5 h-3.5 text-slate-400" /> 展示指标 (点选并自定义标题)</label>
+                                <div className="space-y-2">
+                                    {AVAILABLE_METRICS.map(am => {
+                                        const isSelected = !!selectedMetrics.find(m => m.key === am.key);
+                                        const currentLabel = selectedMetrics.find(m => m.key === am.key)?.label || '';
+                                        return (
+                                            <div key={am.key} className="flex items-center gap-2">
+                                                <button type="button" onClick={() => toggleMetric(am.key)}
+                                                    className={`${chipBaseCls} shrink-0 ${isSelected ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50' : 'bg-slate-900/50 text-slate-400 border-slate-700/50 hover:border-slate-600'}`}
+                                                >
+                                                    {am.defaultLabel}
+                                                </button>
+                                                {isSelected && (
+                                                    <input
+                                                        type="text"
+                                                        value={currentLabel}
+                                                        onChange={e => updateMetricLabel(am.key, e.target.value)}
+                                                        placeholder="自定义显示标题"
+                                                        className="flex-1 bg-slate-900/50 border border-slate-700/50 focus:border-emerald-500/50 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 outline-none"
+                                                    />
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </>
+                    )}
+
+                    {/* 传统图表的数据源选择 */}
+                    {!isAdvancedType && (
+                        <div className="space-y-1.5">
+                            <label className={labelCls}><DbIcon className="w-3.5 h-3.5 text-slate-400" /> 绑定数据源</label>
+                            <div className="relative">
+                                <select value={dataSource} onChange={e => setDataSource(e.target.value)} className={selectCls}>
+                                    <option value="revenue">全节点营收与客流</option>
+                                    <option value="passenger_flow">客运专项监控</option>
+                                    <option value="project">校园与包车专项指标</option>
+                                    <option value="social">自媒体影响力矩阵</option>
+                                </select>
+                                <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none">
+                                    <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+                                </div>
                             </div>
                         </div>
-                    </div>
+                    )}
 
                     <div className="pt-4 flex gap-3">
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-700 text-slate-300 text-sm font-medium hover:bg-slate-800 transition-colors"
-                        >
-                            取消
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={isSubmitting}
-                            className="flex-[2] px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 text-white text-sm font-medium hover:from-cyan-500 hover:to-blue-500 shadow-lg shadow-cyan-500/25 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                        >
-                            {isSubmitting ? (
-                                <>
-                                    <div className="w-4 h-4 rounded-full border-t-2 border-white animate-spin"></div>
-                                    正在保存...
-                                </>
-                            ) : '确认添加并在大屏显示'}
+                        <button type="button" onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-slate-700 text-slate-300 text-sm font-medium hover:bg-slate-800 transition-colors">取消</button>
+                        <button type="submit" disabled={isSubmitting} className="flex-[2] px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 text-white text-sm font-medium hover:from-cyan-500 hover:to-blue-500 shadow-lg shadow-cyan-500/25 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                            {isSubmitting ? (<><div className="w-4 h-4 rounded-full border-t-2 border-white animate-spin" /> 正在保存...</>) : '确认添加并在大屏显示'}
                         </button>
                     </div>
-
                 </form>
             </div>
         </div>

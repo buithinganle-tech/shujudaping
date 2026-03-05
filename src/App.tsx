@@ -177,7 +177,7 @@ function App() {
               </div>
             ) : (
               configs.map(config => (
-                <div key={config.id} className={`${config.chart_type === 'bar' || config.chart_type === 'line' ? 'md:col-span-2 xl:col-span-2' : 'col-span-1'} flex flex-col`}>
+                <div key={config.id} className={`${config.chart_type === 'bar' || config.chart_type === 'line' || config.chart_type === 'comparison' ? 'md:col-span-2 xl:col-span-2' : 'col-span-1'} flex flex-col`}>
                   <ErrorBoundary fallbackTitle={config.title}>
                     <WidgetPicker
                       config={config}
