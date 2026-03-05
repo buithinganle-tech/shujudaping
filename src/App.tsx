@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react'
 import { Routes, Route } from 'react-router-dom'
-import { Activity } from 'lucide-react'
+import { Activity, Lock, Unlock, Plus } from 'lucide-react'
 import { supabase } from './lib/supabase'
 import Header from './components/Header'
-import RevenueChart from './components/RevenueChart'
-import ProjectProgress from './components/ProjectProgress'
-import MarketingGauge from './components/MarketingGauge'
 import LiveLog from './components/LiveLog'
+import WidgetPicker from './components/WidgetPicker'
+import ErrorBoundary from './components/ErrorBoundary'
+import AddWidgetModal from './components/AddWidgetModal'
 import AdminPage from './pages/AdminPage'
+import type { Database } from './types/supabase'
+
+type DashboardConfig = Database['public']['Tables']['dashboard_configs']['Row'];
 
 export interface CompanyMetric {
   id: string;
@@ -32,6 +35,12 @@ function App() {
   const [metrics, setMetrics] = useState<CompanyMetric[]>([])
   const [prevMetrics, setPrevMetrics] = useState<CompanyMetric[]>([])
   const [logs, setLogs] = useState<LogEntry[]>([])
+  const [configs, setConfigs] = useState<DashboardConfig[]>([])
+  const [isConfigLoading, setIsConfigLoading] = useState(true)
+
+  // Admin & Modal State
+  const [isAdminMode, setIsAdminMode] = useState(false)
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false)
 
   const addLog = (message: string) => {
     const entry: LogEntry = {
@@ -73,7 +82,25 @@ function App() {
       setPrevMetrics(yesterdayData)
       addLog('🟢 集团数字化指挥中心上线，全节点数据加载完成')
     }
+
+    const fetchConfigs = async () => {
+      setIsConfigLoading(true)
+      const { data, error } = await supabase
+        .from('dashboard_configs')
+        .select('*')
+        .order('order', { ascending: true })
+
+      if (error) {
+        addLog(`❌ 配置加载失败: ${error.message}`)
+        setIsConfigLoading(false)
+        return
+      }
+      setConfigs(data || [])
+      setIsConfigLoading(false)
+    }
+
     fetchMetrics()
+    fetchConfigs()
 
     const channel = supabase
       .channel('schema-db-changes')
@@ -94,14 +121,28 @@ function App() {
       )
       .subscribe()
 
-    return () => { supabase.removeChannel(channel) }
+    const configChannel = supabase
+      .channel('schema-config-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'dashboard_configs' },
+        () => {
+          fetchConfigs(); // Re-fetch on any config change
+        }
+      )
+      .subscribe()
+
+
+    return () => {
+      supabase.removeChannel(channel)
+      supabase.removeChannel(configChannel)
+    }
   }, [])
 
   const totalRevenue = metrics.reduce((sum, i) => sum + Number(i.daily_revenue || 0), 0)
   const totalPassengerFlow = metrics.reduce((sum, i) => sum + Number(i.passenger_flow || 0), 0)
   const totalCharter = metrics.reduce((sum, i) => sum + Number(i.charter_revenue || 0), 0)
   const charterRatio = totalRevenue > 0 ? Math.round((totalCharter / totalRevenue) * 100) : 0
-  const totalSocialEngagement = metrics.reduce((sum, i) => sum + Number(i.social_engagement || 0), 0)
 
   const prevRevenue = prevMetrics.reduce((sum, i) => sum + Number(i.daily_revenue || 0), 0)
   const prevFlow = prevMetrics.reduce((sum, i) => sum + Number(i.passenger_flow || 0), 0)
@@ -121,20 +162,31 @@ function App() {
             flowGrowth={flowGrowth}
           />
 
-          <div className="flex-1 grid grid-cols-12 gap-4 overflow-hidden min-h-0">
-            <div className="col-span-12 lg:col-span-7 bg-[#0f1d35]/70 backdrop-blur-md rounded-xl border border-slate-700/50 p-4 shadow-lg flex flex-col overflow-hidden group hover:border-cyan-500/40 transition-colors duration-500">
-              <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-cyan-500/60 to-transparent" />
-              <RevenueChart data={metrics} />
-            </div>
-
-            <div className="col-span-12 lg:col-span-5 flex flex-col gap-4 overflow-hidden">
-              <div className="flex-[1.2] bg-[#0f1d35]/70 backdrop-blur-md rounded-xl border border-slate-700/50 p-4 shadow-lg flex flex-col overflow-hidden hover:border-cyan-500/40 transition-colors">
-                <ProjectProgress data={metrics} />
+          {/* 动态配置化大屏渲染区域 */}
+          <div className="flex-1 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 overflow-y-auto min-h-0 pb-4 custom-scrollbar pr-2">
+            {isConfigLoading ? (
+              <div className="col-span-full h-full flex flex-col items-center justify-center text-slate-500 gap-4">
+                <div className="w-16 h-16 rounded-full border-t-2 border-cyan-500 animate-spin"></div>
+                <p>正在加载大屏配置 (Supabase)...</p>
               </div>
-              <div className="flex-1 bg-[#0f1d35]/70 backdrop-blur-md rounded-xl border border-slate-700/50 p-4 shadow-lg flex flex-col overflow-hidden hover:border-violet-500/40 transition-colors">
-                <MarketingGauge totalEngagement={totalSocialEngagement} />
+            ) : configs.length === 0 ? (
+              <div className="col-span-full h-full flex flex-col items-center justify-center text-slate-500 gap-4">
+                <Activity className="w-16 h-16 text-slate-700 mb-2 opacity-50" />
+                <p>大屏目前没有任何模块，或者数据库表仍为空。</p>
+                <p className="text-sm">请等待后续管理员功能开发，或检查 Supabase 数据。</p>
               </div>
-            </div>
+            ) : (
+              configs.map(config => (
+                <div key={config.id} className={`${config.chart_type === 'bar' || config.chart_type === 'line' ? 'md:col-span-2 xl:col-span-2' : 'col-span-1'} flex flex-col`}>
+                  <ErrorBoundary fallbackTitle={config.title}>
+                    <WidgetPicker
+                      config={config}
+                      data={metrics}
+                    />
+                  </ErrorBoundary>
+                </div>
+              ))
+            )}
           </div>
 
           <div className="h-[130px] shrink-0 bg-[#07111f]/90 backdrop-blur-md rounded-xl border border-slate-700/40 px-4 py-3 flex flex-col overflow-hidden">
@@ -145,6 +197,36 @@ function App() {
               <LiveLog logs={logs} />
             </div>
           </div>
+
+          {/* Admin Mode Toggle (Bottom Left) */}
+          <button
+            onClick={() => setIsAdminMode(!isAdminMode)}
+            className={`absolute bottom-6 left-6 p-3 rounded-full flex items-center justify-center transition-all shadow-lg backdrop-blur-md border ${isAdminMode
+              ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/50 hover:bg-cyan-500/30'
+              : 'bg-slate-800/50 text-slate-500 border-slate-700/50 hover:bg-slate-700/50 hover:text-slate-300'
+              }`}
+            title={isAdminMode ? "关闭监控管理模式" : "开启监控管理模式"}
+          >
+            {isAdminMode ? <Unlock className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
+          </button>
+
+          {/* Add Widget FAB (Bottom Right, visible only in Admin Mode) */}
+          {isAdminMode && (
+            <button
+              onClick={() => setIsAddModalOpen(true)}
+              className="absolute bottom-6 right-6 p-4 bg-gradient-to-r from-cyan-600 to-blue-600 text-white rounded-full shadow-lg shadow-cyan-900/50 hover:shadow-cyan-500/50 hover:scale-105 transition-all animate-in slide-in-from-bottom-5"
+              title="添加数据板块"
+            >
+              <Plus className="w-6 h-6" />
+            </button>
+          )}
+
+          {/* Add Widget Modal */}
+          <AddWidgetModal
+            isOpen={isAddModalOpen}
+            onClose={() => setIsAddModalOpen(false)}
+            nextOrder={configs.length > 0 ? Math.max(...configs.map(c => c.order)) + 1 : 1}
+          />
         </div>
       } />
     </Routes>
