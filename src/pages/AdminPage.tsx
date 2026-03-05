@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { Link } from 'react-router-dom'
-import { Send, CheckCircle, AlertCircle, ArrowLeft, BarChart2, Loader2, Route, Building2 } from 'lucide-react'
+import { Send, CheckCircle, AlertCircle, ArrowLeft, BarChart2, Loader2, Route, Building2, PlusCircle, Trash2 } from 'lucide-react'
 
 // ── 分公司数据录入（原有功能） ─────────────────────────
 const BRANCHES = ['湘潭客运分公司', '易俗河汽车站', '湘乡汽车站', '韶山汽车站', '公交集团']
@@ -76,6 +76,8 @@ export default function AdminPage() {
     const [routeErr, setRouteErr] = useState('')
     const [availableRoutes, setAvailableRoutes] = useState<string[]>([])
     const [newRouteName, setNewRouteName] = useState('')
+    // ── 自定义指标 ──
+    const [customMetrics, setCustomMetrics] = useState<{ name: string; value: string }[]>([])
 
     // 加载已有线路列表
     useEffect(() => {
@@ -126,6 +128,11 @@ export default function AdminPage() {
             passenger_count: Number(routeForm.passenger_count) || 0,
             energy_cost: Number(routeForm.energy_cost) || 0,
             mileage: Number(routeForm.mileage) || 0,
+            custom_metrics: customMetrics.reduce((acc, cm) => {
+                const k = cm.name.trim()
+                if (k) acc[k] = Number(cm.value) || 0
+                return acc
+            }, {} as Record<string, number>),
         }
         const { error } = await supabase
             .from('route_daily_metrics')
@@ -218,6 +225,44 @@ export default function AdminPage() {
                     <InputField label="当日人数" name="passenger_count" value={routeForm.passenger_count} onChange={handleRouteChange} placeholder="如：200" unit="人" />
                     <InputField label="当日能耗" name="energy_cost" value={routeForm.energy_cost} onChange={handleRouteChange} placeholder="如：800" unit="元" />
                     <InputField label="当日里程" name="mileage" value={routeForm.mileage} onChange={handleRouteChange} placeholder="如：350" unit="km" />
+
+                    {/* ── 自定义指标动态列表 ── */}
+                    <div className="flex flex-col gap-2">
+                        <div className="flex items-center justify-between">
+                            <label className="text-sm font-medium text-slate-300">自定义指标</label>
+                            <button type="button" onClick={() => setCustomMetrics(prev => [...prev, { name: '', value: '' }])}
+                                className="flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300 transition-colors">
+                                <PlusCircle className="w-3.5 h-3.5" /> 添加指标
+                            </button>
+                        </div>
+                        {customMetrics.length === 0 && (
+                            <p className="text-xs text-slate-600">点击上方“添加指标”可自由扩展，如：维修费、油耗义等</p>
+                        )}
+                        {customMetrics.map((cm, idx) => (
+                            <div key={idx} className="flex gap-2 items-center">
+                                <input type="text" value={cm.name}
+                                    onChange={e => {
+                                        const updated = [...customMetrics]
+                                        updated[idx].name = e.target.value
+                                        setCustomMetrics(updated)
+                                    }}
+                                    placeholder="指标名，如：维修费"
+                                    className="flex-1 bg-slate-900/60 border border-slate-700/60 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-600 outline-none focus:border-cyan-500/70 transition-colors" />
+                                <input type="number" value={cm.value}
+                                    onChange={e => {
+                                        const updated = [...customMetrics]
+                                        updated[idx].value = e.target.value
+                                        setCustomMetrics(updated)
+                                    }}
+                                    placeholder="数值"
+                                    className="w-28 bg-slate-900/60 border border-slate-700/60 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-600 outline-none focus:border-cyan-500/70 transition-colors" />
+                                <button type="button" onClick={() => setCustomMetrics(prev => prev.filter((_, i) => i !== idx))}
+                                    className="p-2 text-slate-500 hover:text-red-400 rounded-lg transition-colors">
+                                    <Trash2 className="w-4 h-4" />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
 
                     <button type="submit" disabled={routeToast === 'loading'}
                         className="mt-2 flex items-center justify-center gap-2 bg-cyan-500 hover:bg-cyan-400 disabled:bg-slate-700 disabled:text-slate-500 text-slate-900 font-bold py-4 rounded-xl transition-all duration-200 text-base active:scale-95">

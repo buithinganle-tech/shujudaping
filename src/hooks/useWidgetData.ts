@@ -10,6 +10,8 @@ export interface RouteMetricRow {
     passenger_count: number
     energy_cost: number
     mileage: number
+    custom_metrics?: Record<string, number>
+    [key: string]: any // allow dynamic metric access
 }
 
 export interface WidgetDataResult {
@@ -60,7 +62,7 @@ export function useWidgetData(config: WidgetConfig | undefined): WidgetDataResul
                     setIsLoading(false)
                     return
                 }
-                setPrimary((primaryData as RouteMetricRow[]) || [])
+                setPrimary(flattenCustomMetrics((primaryData as RouteMetricRow[]) || []))
 
                 // ── 对比数据查询（如果有） ──
                 if (config.compare_routes && config.compare_routes.length > 0) {
@@ -82,7 +84,7 @@ export function useWidgetData(config: WidgetConfig | undefined): WidgetDataResul
                     if (compareError) {
                         setError(`对比数据查询失败: ${compareError.message}`)
                     } else {
-                        setCompare((compareData as RouteMetricRow[]) || [])
+                        setCompare(flattenCustomMetrics((compareData as RouteMetricRow[]) || []))
                     }
                 } else {
                     setCompare([])
@@ -148,4 +150,15 @@ function resolveDateRange(
         default:
             return { start: null, end: null }
     }
+}
+
+/**
+ * 将每行的 custom_metrics JSONB 字段平铺到行对象上，
+ * 使自定义指标的 key（如 maintenance_fee）可以像 revenue 一样直接通过 row[key] 访问。
+ */
+function flattenCustomMetrics(rows: RouteMetricRow[]): RouteMetricRow[] {
+    return rows.map(row => {
+        if (!row.custom_metrics || typeof row.custom_metrics !== 'object') return row
+        return { ...row, ...row.custom_metrics }
+    })
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, PlusCircle, LayoutTemplate, Database as DbIcon, Type, Route, Calendar, BarChart3, LineChart, PieChart, Activity, Gauge } from 'lucide-react';
+import { X, PlusCircle, LayoutTemplate, Database as DbIcon, Type, Route, Calendar, BarChart3, LineChart, PieChart, Activity, Gauge, Plus } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import type { WidgetConfig, MetricConfig } from '../types/supabase';
 
@@ -45,19 +45,33 @@ export default function AddWidgetModal({ isOpen, onClose, nextOrder }: Props) {
         { key: 'revenue', label: '营收(元)' }
     ]);
 
+    // 自定义指标发现
+    const [discoveredCustomKeys, setDiscoveredCustomKeys] = useState<string[]>([]);
+    const [newCustomKey, setNewCustomKey] = useState('');
+
     // 是否为高级图表（需要线路/指标配置）
     const isAdvancedType = chartType === 'comparison' || chartType === 'metric_cards';
 
-    // 加载可用线路
+    // 加载可用线路 和 自定义指标 keys
     useEffect(() => {
         if (!isOpen) return;
         const fetchRoutes = async () => {
             const { data } = await supabase
                 .from('route_daily_metrics')
-                .select('route_name')
+                .select('route_name, custom_metrics')
             if (data) {
                 const uniqueRoutes = [...new Set(data.map((r: any) => r.route_name))];
                 setAvailableRoutes(uniqueRoutes);
+
+                // 从数据中发现所有自定义指标 key
+                const customKeys = new Set<string>();
+                for (const row of data) {
+                    const cm = (row as any).custom_metrics;
+                    if (cm && typeof cm === 'object') {
+                        Object.keys(cm).forEach(k => customKeys.add(k));
+                    }
+                }
+                setDiscoveredCustomKeys([...customKeys]);
             }
         };
         fetchRoutes();
@@ -168,8 +182,8 @@ export default function AddWidgetModal({ isOpen, onClose, nextOrder }: Props) {
                                         type="button"
                                         onClick={() => setChartType(ct.id)}
                                         className={`relative flex flex-col items-center justify-center p-3 rounded-xl border transition-all duration-200 ${isSelected
-                                                ? 'bg-cyan-500/20 border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.15)] ring-1 ring-cyan-500/50 transform scale-[0.98]'
-                                                : 'bg-slate-900/50 border-slate-700/50 hover:border-slate-500/50 hover:bg-slate-800/50'
+                                            ? 'bg-cyan-500/20 border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.15)] ring-1 ring-cyan-500/50 transform scale-[0.98]'
+                                            : 'bg-slate-900/50 border-slate-700/50 hover:border-slate-500/50 hover:bg-slate-800/50'
                                             }`}
                                     >
                                         <Icon className={`w-6 h-6 mb-2 ${isSelected ? 'text-cyan-400' : 'text-slate-400'}`} />
@@ -244,9 +258,10 @@ export default function AddWidgetModal({ isOpen, onClose, nextOrder }: Props) {
                             </div>
 
                             {/* 指标选择与自定义标题 */}
-                            <div className="space-y-1.5">
+                            <div className="space-y-2">
                                 <label className={labelCls}><BarChart3 className="w-3.5 h-3.5 text-slate-400" /> 展示指标 (点选并自定义标题)</label>
                                 <div className="space-y-2">
+                                    {/* 基础指标 */}
                                     {AVAILABLE_METRICS.map(am => {
                                         const isSelected = !!selectedMetrics.find(m => m.key === am.key);
                                         const currentLabel = selectedMetrics.find(m => m.key === am.key)?.label || '';
@@ -269,6 +284,60 @@ export default function AddWidgetModal({ isOpen, onClose, nextOrder }: Props) {
                                             </div>
                                         );
                                     })}
+
+                                    {/* 动态发现的自定义指标 */}
+                                    {discoveredCustomKeys.length > 0 && (
+                                        <>
+                                            <div className="h-px bg-slate-700/40 my-1" />
+                                            <p className="text-[10px] text-slate-500 uppercase tracking-wider">🔍 从数据库发现的自定义指标</p>
+                                            {discoveredCustomKeys.map(ck => {
+                                                const isSelected = !!selectedMetrics.find(m => m.key === ck);
+                                                const currentLabel = selectedMetrics.find(m => m.key === ck)?.label || '';
+                                                return (
+                                                    <div key={ck} className="flex items-center gap-2">
+                                                        <button type="button" onClick={() => toggleMetric(ck)}
+                                                            className={`${chipBaseCls} shrink-0 ${isSelected ? 'bg-amber-500/20 text-amber-300 border-amber-500/50' : 'bg-slate-900/50 text-slate-400 border-slate-700/50 hover:border-slate-600'}`}
+                                                        >
+                                                            {ck}
+                                                        </button>
+                                                        {isSelected && (
+                                                            <input
+                                                                type="text"
+                                                                value={currentLabel}
+                                                                onChange={e => updateMetricLabel(ck, e.target.value)}
+                                                                placeholder="自定义显示标题"
+                                                                className="flex-1 bg-slate-900/50 border border-slate-700/50 focus:border-amber-500/50 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 outline-none"
+                                                            />
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </>
+                                    )}
+
+                                    {/* 手动输入新的自定义指标 key */}
+                                    <div className="flex items-center gap-2 pt-1">
+                                        <input
+                                            type="text"
+                                            value={newCustomKey}
+                                            onChange={e => setNewCustomKey(e.target.value)}
+                                            placeholder="手动输入指标名，如：维修费"
+                                            className="flex-1 bg-slate-900/50 border border-dashed border-slate-600/50 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-cyan-500/50"
+                                        />
+                                        <button type="button"
+                                            onClick={() => {
+                                                const k = newCustomKey.trim();
+                                                if (k && !selectedMetrics.find(m => m.key === k)) {
+                                                    setSelectedMetrics(prev => [...prev, { key: k, label: k }]);
+                                                    setNewCustomKey('');
+                                                }
+                                            }}
+                                            className="p-1.5 text-cyan-400 hover:text-cyan-300 hover:bg-slate-800 rounded-lg transition-colors"
+                                            title="添加此指标"
+                                        >
+                                            <Plus className="w-4 h-4" />
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </>
