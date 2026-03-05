@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, PlusCircle, LayoutTemplate, Database as DbIcon, Type, Route, Calendar, BarChart3 } from 'lucide-react';
+import { X, PlusCircle, LayoutTemplate, Database as DbIcon, Type, Route, Calendar, BarChart3, LineChart, PieChart, Activity, Gauge } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import type { WidgetConfig, MetricConfig } from '../types/supabase';
 
@@ -14,6 +14,15 @@ const AVAILABLE_METRICS: { key: string; defaultLabel: string }[] = [
     { key: 'passenger_count', defaultLabel: '人数(人)' },
     { key: 'energy_cost', defaultLabel: '能耗(元)' },
     { key: 'mileage', defaultLabel: '里程(km)' },
+];
+
+const CHART_TYPES = [
+    { id: 'comparison', label: '趋势对比图', desc: '多线路指标对比', icon: LineChart, isBi: true },
+    { id: 'metric_cards', label: '指标卡片群', desc: '核心数据展示', icon: Activity, isBi: true },
+    { id: 'line', label: '全局折线', desc: '公司级收益趋势', icon: LineChart, isBi: false },
+    { id: 'bar', label: '全局柱状', desc: '各站点横向对比', icon: BarChart3, isBi: false },
+    { id: 'gauge', label: '全局大盘', desc: '单项指标仪表盘', icon: Gauge, isBi: false },
+    { id: 'progress', label: '进度环', desc: '任务完成度', icon: PieChart, isBi: false },
 ];
 
 export default function AddWidgetModal({ isOpen, onClose, nextOrder }: Props) {
@@ -146,26 +155,38 @@ export default function AddWidgetModal({ isOpen, onClose, nextOrder }: Props) {
                         <input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="例如：湘潭-花石 每日营收趋势" className={inputCls} />
                     </div>
 
-                    {/* 图表类型 */}
-                    <div className="space-y-1.5">
-                        <label className={labelCls}><LayoutTemplate className="w-3.5 h-3.5 text-slate-400" /> 图表类型</label>
-                        <div className="relative">
-                            <select value={chartType} onChange={e => setChartType(e.target.value)} className={selectCls}>
-                                <optgroup label="📊 BI 分析图表 (推荐)">
-                                    <option value="comparison">趋势对比图 (折线/柱状)</option>
-                                    <option value="metric_cards">数据指标卡片群</option>
-                                </optgroup>
-                                <optgroup label="📈 传统全局图表">
-                                    <option value="line">折线图 (全局)</option>
-                                    <option value="bar">柱状图 (全局)</option>
-                                    <option value="gauge">仪表盘</option>
-                                    <option value="progress">进度环</option>
-                                    <option value="project_timeline">专项指标</option>
-                                </optgroup>
-                            </select>
-                            <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none">
-                                <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
-                            </div>
+                    {/* 图表类型 (可视化选择区域) */}
+                    <div className="space-y-2">
+                        <label className={labelCls}><LayoutTemplate className="w-3.5 h-3.5 text-slate-400" /> 选择图表形态</label>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            {CHART_TYPES.map(ct => {
+                                const Icon = ct.icon;
+                                const isSelected = chartType === ct.id;
+                                return (
+                                    <button
+                                        key={ct.id}
+                                        type="button"
+                                        onClick={() => setChartType(ct.id)}
+                                        className={`relative flex flex-col items-center justify-center p-3 rounded-xl border transition-all duration-200 ${isSelected
+                                                ? 'bg-cyan-500/20 border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.15)] ring-1 ring-cyan-500/50 transform scale-[0.98]'
+                                                : 'bg-slate-900/50 border-slate-700/50 hover:border-slate-500/50 hover:bg-slate-800/50'
+                                            }`}
+                                    >
+                                        <Icon className={`w-6 h-6 mb-2 ${isSelected ? 'text-cyan-400' : 'text-slate-400'}`} />
+                                        <div className={`text-xs font-semibold ${isSelected ? 'text-cyan-300' : 'text-slate-300'}`}>
+                                            {ct.label}
+                                        </div>
+                                        <div className="text-[10px] text-slate-500 mt-1 scale-90">
+                                            {ct.desc}
+                                        </div>
+                                        {ct.isBi && (
+                                            <div className="absolute top-1.5 right-1.5 text-[8px] font-bold bg-gradient-to-r from-emerald-500 to-teal-400 text-white px-1.5 py-0.5 rounded shadow-sm">
+                                                BI
+                                            </div>
+                                        )}
+                                    </button>
+                                );
+                            })}
                         </div>
                     </div>
 

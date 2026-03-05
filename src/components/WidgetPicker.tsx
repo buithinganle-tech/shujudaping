@@ -8,15 +8,18 @@ import ProjectProgress from './ProjectProgress';
 import ComparisonChart from './ComparisonChart';
 import MetricCardGroup from './MetricCardGroup';
 import { useWidgetData } from '../hooks/useWidgetData';
+import { Trash2, Eye, EyeOff } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 type DashboardConfig = Database['public']['Tables']['dashboard_configs']['Row'];
 
 interface WidgetPickerProps {
     config: DashboardConfig;
     data: CompanyMetric[];
+    isAdmin?: boolean;
 }
 
-export default function WidgetPicker({ config, data }: WidgetPickerProps) {
+export default function WidgetPicker({ config, data, isAdmin }: WidgetPickerProps) {
     // 解析高级配置（JSONB 字段）
     const widgetConfig: WidgetConfig = (config.config && typeof config.config === 'object')
         ? config.config as WidgetConfig
@@ -24,10 +27,49 @@ export default function WidgetPicker({ config, data }: WidgetPickerProps) {
 
     // 使用数据查询引擎获取线路级历史数据
     const { primary, compare, isLoading, error } = useWidgetData(widgetConfig);
+    const isHidden = !!(widgetConfig as any).isHidden;
 
-    const WidgetCard = ({ children, title }: { children: React.ReactNode, title: string }) => (
+    const handleToggleHide = async (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const newConfig = { ...widgetConfig, isHidden: !isHidden };
+        await supabase.from('dashboard_configs').update({ config: newConfig }).eq('id', config.id);
+    };
+
+    const handleDelete = async (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (window.confirm(`确定要从大屏永久移除 "${config.title}" 板块吗？`)) {
+            const { error } = await supabase.from('dashboard_configs').delete().eq('id', config.id);
+            if (error) {
+                console.error("Delete error:", error);
+                alert(`删除失败，请检查数据库权限 (RLS): ${error.message}`);
+            }
+            // Realtime subscription in App.tsx will auto-refresh the UI
+        }
+    };
+
+    const wrapCard = (children: React.ReactNode) => (
         <div className="bg-slate-800/50 rounded-xl p-4 md:p-5 border border-slate-700/50 flex flex-col items-start justify-between min-h-[300px] relative overflow-hidden group hover:border-cyan-500/30 transition-colors">
-            <h3 className="text-sm font-semibold text-slate-300 mb-4 z-10">{title}</h3>
+            {isAdmin && (
+                <div className="absolute top-3 right-3 z-50 flex gap-2">
+                    <button
+                        onClick={handleToggleHide}
+                        className="p-1.5 text-slate-500 hover:text-yellow-400 hover:bg-slate-800/80 rounded-lg transition-all"
+                        title={isHidden ? "显示此板块" : "隐藏此板块"}
+                    >
+                        {isHidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                    </button>
+                    <button
+                        onClick={handleDelete}
+                        className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-slate-800/80 rounded-lg transition-all"
+                        title="删除此板块"
+                    >
+                        <Trash2 className="w-4 h-4" />
+                    </button>
+                </div>
+            )}
+            <h3 className="text-sm font-semibold text-slate-300 mb-4 z-10 pr-16">{config.title}</h3>
             <div className="w-full flex-1 z-10">
                 {children}
             </div>
@@ -66,67 +108,45 @@ export default function WidgetPicker({ config, data }: WidgetPickerProps) {
         // ── 老图表类型（使用 company_metrics 全局数据） ──
         case 'bar':
         case 'line':
-            return (
-                <WidgetCard title={config.title}>
-                    <RevenueChart data={data} />
-                </WidgetCard>
-            );
+            return wrapCard(<RevenueChart data={data} />);
 
         case 'gauge':
-            return (
-                <WidgetCard title={config.title}>
-                    <MarketingGauge totalEngagement={data.reduce((sum, d) => sum + Number(d.social_engagement || 0), 0)} />
-                </WidgetCard>
-            );
+            return wrapCard(<MarketingGauge totalEngagement={data.reduce((sum, d) => sum + Number(d.social_engagement || 0), 0)} />);
 
         case 'progress':
-            return (
-                <WidgetCard title={config.title}>
-                    <ProgressRing data={data} />
-                </WidgetCard>
-            );
+            return wrapCard(<ProgressRing data={data} />);
 
         case 'project_timeline':
-            return (
-                <WidgetCard title={config.title}>
-                    <ProjectProgress data={data} />
-                </WidgetCard>
-            );
+            return wrapCard(<ProjectProgress data={data} />);
 
         // ── 新图表类型（使用 route_daily_metrics 历史数据） ──
         case 'comparison':
-            return (
-                <WidgetCard title={config.title}>
-                    {renderWithLoading(
-                        <ComparisonChart
-                            primary={primary}
-                            compare={compare}
-                            metrics={widgetConfig.metrics || [{ key: 'revenue', label: '营收' }]}
-                        />
-                    )}
-                </WidgetCard>
+            return wrapCard(
+                renderWithLoading(
+                    <ComparisonChart
+                        primary={primary}
+                        compare={compare}
+                        metrics={widgetConfig.metrics || [{ key: 'revenue', label: '营收' }]}
+                    />
+                )
             );
 
         case 'metric_cards':
-            return (
-                <WidgetCard title={config.title}>
-                    {renderWithLoading(
-                        <MetricCardGroup
-                            data={primary}
-                            compareData={compare}
-                            metrics={widgetConfig.metrics || [{ key: 'revenue', label: '营收' }]}
-                        />
-                    )}
-                </WidgetCard>
+            return wrapCard(
+                renderWithLoading(
+                    <MetricCardGroup
+                        data={primary}
+                        compareData={compare}
+                        metrics={widgetConfig.metrics || [{ key: 'revenue', label: '营收' }]}
+                    />
+                )
             );
 
         default:
-            return (
-                <WidgetCard title={config.title}>
-                    <div className="flex items-center justify-center h-full text-slate-500 text-sm">
-                        不支持的图表类型: {config.chart_type}
-                    </div>
-                </WidgetCard>
+            return wrapCard(
+                <div className="flex items-center justify-center h-full text-slate-500 text-sm">
+                    不支持的图表类型: {config.chart_type}
+                </div>
             );
     }
 }

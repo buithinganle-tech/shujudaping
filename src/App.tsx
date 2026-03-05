@@ -176,16 +176,25 @@ function App() {
                 <p className="text-sm">请等待后续管理员功能开发，或检查 Supabase 数据。</p>
               </div>
             ) : (
-              configs.map(config => (
-                <div key={config.id} className={`${config.chart_type === 'bar' || config.chart_type === 'line' || config.chart_type === 'comparison' ? 'md:col-span-2 xl:col-span-2' : 'col-span-1'} flex flex-col`}>
-                  <ErrorBoundary fallbackTitle={config.title}>
-                    <WidgetPicker
-                      config={config}
-                      data={metrics}
-                    />
-                  </ErrorBoundary>
-                </div>
-              ))
+              configs.map(config => {
+                const widgetConfig = (config.config && typeof config.config === 'object') ? config.config as any : {};
+                const isHidden = !!widgetConfig.isHidden;
+
+                // If it's hidden and we're not an admin, don't render it at all
+                if (isHidden && !isAdminMode) return null;
+
+                return (
+                  <div key={config.id} className={`${config.chart_type === 'bar' || config.chart_type === 'line' || config.chart_type === 'comparison' ? 'md:col-span-2 xl:col-span-2' : 'col-span-1'} flex flex-col ${isHidden ? 'opacity-40 grayscale transition-all' : ''}`}>
+                    <ErrorBoundary fallbackTitle={config.title}>
+                      <WidgetPicker
+                        config={config}
+                        data={metrics}
+                        isAdmin={isAdminMode}
+                      />
+                    </ErrorBoundary>
+                  </div>
+                );
+              })
             )}
           </div>
 
